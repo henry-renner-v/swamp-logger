@@ -1,0 +1,12 @@
+{
+  "name": "swamp-logger",
+  "version": "0.1.0",
+  "exports": "./swamp_logger.ts",
+  "tasks": {
+    "start": "deno run --allow-net --allow-read --allow-write --allow-env swamp_logger.ts",
+    "check": "deno fmt --check && deno lint && deno check swamp_logger.ts"
+  },
+  "fmt": {
+    "lineWidth": 100
+  }
+}

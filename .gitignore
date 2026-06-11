@@ -1,0 +1,5 @@
+# Captured telemetry output (local; persistence lives elsewhere, e.g. a Forgejo repo)
+/events/
+
+# Deno
+.deno/
