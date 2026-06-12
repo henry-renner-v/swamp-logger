@@ -63,6 +63,27 @@ swamp-logger --sink http://my-receiver.example/ingest --no-files
 The listener always responds `200` and forwards fire-and-forget, so it can never block or break
 swamp's own telemetry sender.
 
+## Audit what you captured
+
+The capture store is just files, so consumers of it are separate and swappable — an audit is the
+first one. [`audit.ts`](audit.ts) reads `events/**` (per [PROTOCOL.md](PROTOCOL.md)) and summarizes
+what the CLI phoned home: commands run, the stable identifiers that fingerprint you (`distinct_id`)
+and your repos (`$repo_id`), environment, whether an AI agent was driving, and any failed
+invocations.
+
+```bash
+deno run --allow-read audit.ts ./events          # human-readable markdown (default)
+deno run --allow-read audit.ts ./events --json    # machine-readable JSON
+```
+
+It has no swamp dependency and no swamp-logger _runtime_ dependency — only the on-disk schema. It is
+also importable, so other surfaces (e.g. a swamp report) can reuse the exact same logic:
+
+```ts
+import { auditDir } from "./audit.ts";
+const { markdown, json } = await auditDir("./events");
+```
+
 ## What it is not
 
 - It does **not** capture from _inside_ swamp (a swamp extension can't intercept the CLI's own
