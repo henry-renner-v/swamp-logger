@@ -1,7 +1,7 @@
 # swamp telemetry protocol (observed)
 
 What the `swamp` CLI sends, and how `swamp-logger` persists it. Observed against
-`swamp 20260609.232501.0`; treat as descriptive, not a contract — swamp may change it.
+`swamp 20260609.232501.0-sha.873563f2`; treat as descriptive, not a contract — swamp may change it.
 
 ## Transport
 
@@ -27,10 +27,11 @@ What the `swamp` CLI sends, and how `swamp-logger` persists it. Observed against
   "properties": {
     "id": "<per-event UUID>",
     "invocation": {
-      "command": "version",
-      "args": [], // positional args
-      "optionKeys": [], // option NAMES only — not their values
-      "globalOptions": []
+      "command": "extension", // top-level command name
+      "subcommand": "version", // subcommand name, present when the command nests one (e.g. `swamp extension version`)
+      "args": ["<REDACTED>"], // positional args — captured, but values are redacted by swamp
+      "optionKeys": ["--log-level"], // command option NAMES only — never their values
+      "globalOptions": ["--verbose"] // global flag NAMES only (e.g. --verbose, --json) — never their values
     },
     "result": { "status": "success", "exitCode": 0 },
     "startedAt": "2026-06-10T11:20:07.782Z",
@@ -55,8 +56,13 @@ What the `swamp` CLI sends, and how `swamp-logger` persists it. Observed against
 
 - Records **every command run**, success/failure, timing, versions, platform, and whether an AI
   agent (and which) is driving the session.
-- `optionKeys` are option **names**, not values — flag _values_ (e.g. an IP passed to a
-  `--global-arg`) are not included in this version.
+- `optionKeys` (command options) and `globalOptions` (global flags like `--verbose`/`--json`) are
+  both option **names**, not values — flag _values_ (e.g. an IP passed to a `--global-arg`) are not
+  included in this version. The two arrays differ only in option scope.
+- `command` plus `subcommand` reconstruct the full command path (e.g. `extension` + `version` =
+  `swamp extension version`); `subcommand` is absent for top-level commands.
+- Positional `args` are captured but their values arrive **redacted** (`"<REDACTED>"`); the count
+  and positions still leak.
 - Identifiers present: `distinct_id` (stable, anonymous) and `$repo_id`.
 
 ## On-disk layout (what swamp-logger writes)

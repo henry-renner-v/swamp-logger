@@ -30,7 +30,13 @@ interface EventRecord {
     distinct_id?: string;
     properties?: {
       id?: string;
-      invocation?: { command?: string; args?: unknown[]; optionKeys?: string[] };
+      invocation?: {
+        command?: string;
+        subcommand?: string;
+        args?: unknown[];
+        optionKeys?: string[];
+        globalOptions?: string[];
+      };
       result?: { status?: string; exitCode?: number };
       startedAt?: string;
       completedAt?: string;
@@ -70,7 +76,57 @@ export interface Audit {
     externalDatastoreConfigured: Record<string, number>;
   };
   failures: Array<{ command: string; status: string; exitCode: number; at: string | null }>;
+  /**
+   * Property paths present in captured events that this audit does not yet describe — the
+   * forward-compat canary. Empty against the documented schema (PROTOCOL.md); non-empty means
+   * swamp started phoning home a field this tool has not been taught about, so the audit is
+   * silently under-reporting. Re-sync the schema when this fires.
+   */
+  unknownFields: string[];
   findings: string[];
+}
+
+/** The field surface documented in PROTOCOL.md, keyed by object path ("" = top-level properties). */
+const KNOWN_FIELDS: Record<string, Set<string>> = {
+  "": new Set([
+    "id",
+    "invocation",
+    "result",
+    "startedAt",
+    "completedAt",
+    "durationMs",
+    "swampVersion",
+    "denoVersion",
+    "platform",
+    "invocationContext",
+    "$repo_id",
+  ]),
+  "invocation": new Set(["command", "subcommand", "args", "optionKeys", "globalOptions"]),
+  "result": new Set(["status", "exitCode"]),
+  "invocationContext": new Set([
+    "agentSessionDetected",
+    "isInteractive",
+    "externalDatastoreConfigured",
+    "configuredAiTools",
+    "detectedAiTool",
+  ]),
+};
+
+/** Property paths in one event's `properties` that aren't in the documented schema. */
+function unknownKeys(props: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const scan = (obj: unknown, prefix: string): void => {
+    if (!obj || typeof obj !== "object") return;
+    const known = KNOWN_FIELDS[prefix] ?? new Set<string>();
+    for (const k of Object.keys(obj as Record<string, unknown>)) {
+      if (!known.has(k)) out.push(prefix ? `${prefix}.${k}` : k);
+    }
+  };
+  scan(props, "");
+  scan(props.invocation, "invocation");
+  scan(props.result, "result");
+  scan(props.invocationContext, "invocationContext");
+  return out;
 }
 
 const uniq = <T>(xs: T[]): T[] => [...new Set(xs)].sort();
@@ -119,6 +175,15 @@ export function auditRecords(records: EventRecord[]): Audit {
   const rawCount = records.filter((r) => r.raw !== undefined).length;
   if (rawCount) findings.push(`${rawCount} unparsed payload(s) captured under events/raw/.`);
 
+  const unknownFields = uniq(props.flatMap((p) => unknownKeys(p as Record<string, unknown>)));
+  if (unknownFields.length) {
+    findings.push(
+      `⚠ ${unknownFields.length} telemetry field(s) not accounted for by this audit: ` +
+        `${unknownFields.map((f) => `\`${f}\``).join(", ")} — swamp may be phoning home data ` +
+        `this tool does not yet describe; re-sync the schema.`,
+    );
+  }
+
   return {
     eventCount: events.length,
     rawCount,
@@ -147,6 +212,7 @@ export function auditRecords(records: EventRecord[]): Audit {
         exitCode: p.result?.exitCode ?? -1,
         at: p.completedAt ?? p.startedAt ?? null,
       })),
+    unknownFields,
     findings,
   };
 }
@@ -233,6 +299,12 @@ export function renderMarkdown(a: Audit): string {
     `## Option keys seen`,
     ``,
     a.optionKeys.length ? a.optionKeys.map((k) => `\`${k}\``).join(" · ") : "_(none)_",
+    ``,
+    `## Untracked fields`,
+    ``,
+    a.unknownFields?.length
+      ? a.unknownFields.map((f) => `\`${f}\``).join(" · ")
+      : "_(none — every captured field is accounted for)_",
     ``,
     ...(a.failures.length
       ? [

@@ -60,6 +60,66 @@ Deno.test("counts unparsed raw records separately from events", () => {
   assertEquals(a.rawCount, 1);
 });
 
+Deno.test("documented schema yields no untracked fields (forward-compat canary)", () => {
+  const a = auditRecords([
+    rec({
+      id: "e1",
+      invocation: {
+        command: "extension",
+        subcommand: "version",
+        args: ["<REDACTED>"],
+        optionKeys: ["--json"],
+        globalOptions: ["--verbose"],
+      },
+      result: { status: "success", exitCode: 0 },
+      startedAt: "2026-06-12T01:00:00.000Z",
+      completedAt: "2026-06-12T01:00:00.010Z",
+      durationMs: 10,
+      swampVersion: "1",
+      denoVersion: "1",
+      platform: "linux",
+      invocationContext: {
+        agentSessionDetected: true,
+        isInteractive: false,
+        externalDatastoreConfigured: false,
+        configuredAiTools: ["claude"],
+        detectedAiTool: "claude",
+      },
+      $repo_id: "repo-1",
+    }),
+  ]);
+  assertEquals(a.unknownFields, []);
+  assertStringIncludes(renderMarkdown(a), "_(none — every captured field is accounted for)_");
+});
+
+Deno.test("surfaces a newly-added telemetry field swamp starts sending", () => {
+  const a = auditRecords([
+    rec({
+      invocation: { command: "model", gitRemoteUrl: "https://example.com/x.git" },
+      geoCountry: "US",
+      invocationContext: { agentSessionDetected: true, sessionId: "abc" },
+    }),
+  ]);
+  assertEquals(a.unknownFields, [
+    "geoCountry",
+    "invocation.gitRemoteUrl",
+    "invocationContext.sessionId",
+  ]);
+  const md = renderMarkdown(a);
+  assertStringIncludes(md, "## Untracked fields");
+  assertStringIncludes(md, "`geoCountry`");
+  assertStringIncludes(md, "not accounted for by this audit");
+});
+
+Deno.test("renders an older audit resource that predates unknownFields", () => {
+  // A resource written by a version before the unknownFields canary — the field is absent.
+  const legacy = auditRecords([]);
+  delete (legacy as { unknownFields?: string[] }).unknownFields;
+  const md = renderMarkdown(legacy);
+  assertStringIncludes(md, "## Untracked fields");
+  assertStringIncludes(md, "_(none — every captured field is accounted for)_");
+});
+
 Deno.test("empty input produces a valid, empty audit", () => {
   const a = auditRecords([]);
   assertEquals(a.eventCount, 0);
